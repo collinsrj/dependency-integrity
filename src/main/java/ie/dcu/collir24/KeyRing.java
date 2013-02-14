@@ -70,8 +70,13 @@ public class KeyRing {
 	void addKey(PGPPublicKeyRing publicKeyRing) {
 		w.lock();
 		try {
-			keyRingCollection = PGPPublicKeyRingCollection.addPublicKeyRing(
-					keyRingCollection, publicKeyRing);
+			if (!keyRingCollection.contains(publicKeyRing.getPublicKey().getKeyID())) {
+				keyRingCollection = PGPPublicKeyRingCollection.addPublicKeyRing(
+						keyRingCollection, publicKeyRing);	
+			}			
+		} catch (PGPException e) {
+			throw new RuntimeException(
+					"Problem checking keyring contains with keyId: " + publicKeyRing.getPublicKey().getKeyID());
 		} finally {
 			w.unlock();
 		}
