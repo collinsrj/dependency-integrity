@@ -63,4 +63,7 @@ public class LoggingVerificationDataStore implements VerificationDataStore {
 	public void filesDoNotMatch(String path, String path2) {
 		LOGGER.info("filesDoNotMatch: " + path + " " + path2);
 	}
+	public void notInMavenCentral(String path) {
+		LOGGER.info("notInMavenCentral: " + path);
+	}
 }

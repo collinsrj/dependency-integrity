@@ -129,13 +129,18 @@ public class VerifyFileTask implements Runnable {
 		} catch (ExecutionException e) {
 			return false;
 		}
-		byte[] sha1File1 = createSha1(file);
-		byte[] sha1File2 = createSha1(newFile);
-		boolean match = Arrays.equals(sha1File1, sha1File2);
-		if (match) {
-			dataStore.filesMatch(path);
+		boolean match = false;
+		if (newFile == null) {
+			dataStore.notInMavenCentral(newFilePath);
 		} else {
-			dataStore.filesDoNotMatch(path, newFilePath);
+			byte[] sha1File1 = createSha1(file);
+			byte[] sha1File2 = createSha1(newFile);
+			match = Arrays.equals(sha1File1, sha1File2);
+			if (match) {
+				dataStore.filesMatch(path);
+			} else {
+				dataStore.filesDoNotMatch(path, newFilePath);
+			}
 		}
 		return match;
 	}
@@ -265,13 +270,15 @@ public class VerifyFileTask implements Runnable {
 	}
 
 	private static byte[] createSha1(File file) {
+		if (file == null || !file.exists()) {
+			throw new IllegalArgumentException("File doesn't exist: " + file);
+		}
 		MessageDigest digest;
 		try {
 			digest = MessageDigest.getInstance("SHA-1");
 		} catch (NoSuchAlgorithmException e) {
 			throw new RuntimeException("Couldn't create digest algorithm.", e);
 		}
-
 		InputStream fis = null;
 		try {
 			fis = new FileInputStream(file);

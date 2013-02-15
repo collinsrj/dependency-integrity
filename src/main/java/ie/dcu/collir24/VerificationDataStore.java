@@ -27,5 +27,7 @@ public interface VerificationDataStore {
 	void filesMatch(String path);
 
 	void filesDoNotMatch(String path, String path2);
+	
+	void notInMavenCentral(String path);
 
 }

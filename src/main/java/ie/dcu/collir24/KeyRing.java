@@ -1,5 +1,6 @@
 package ie.dcu.collir24;
 
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
@@ -24,14 +25,21 @@ import org.bouncycastle.openpgp.PGPUtil;
 public class KeyRing {
 	private static final Logger LOGGER = Logger.getLogger(KeyRing.class
 			.getName());
-	private final String keyRingFile;
+	private final String keyRingFilePath;
 	private PGPPublicKeyRingCollection keyRingCollection;
 
-	public KeyRing(String keyRingFile) {
-		this.keyRingFile = keyRingFile;
+	public KeyRing(String keyRingFilePath) {
+		this.keyRingFilePath = keyRingFilePath;
 		try {
-			keyRingCollection = new PGPPublicKeyRingCollection(
-					PGPUtil.getDecoderStream(new FileInputStream(keyRingFile)));
+			File keyRingFile = new File(keyRingFilePath);
+			if (keyRingFile.exists()) {
+				keyRingCollection = new PGPPublicKeyRingCollection(
+						PGPUtil.getDecoderStream(new FileInputStream(keyRingFile)));				
+			} else {
+				keyRingFile.getParentFile().mkdir();
+				keyRingFile.createNewFile();
+				keyRingCollection = new PGPPublicKeyRingCollection(new byte[]{});	
+			}			
 		} catch (FileNotFoundException e) {
 			throw new RuntimeException("Couldn't find keyring file.");
 		} catch (IOException e) {
@@ -99,7 +107,7 @@ public class KeyRing {
 		try {
 			FileOutputStream newPubKeyring = null;
 			try {
-				newPubKeyring = new FileOutputStream(keyRingFile);
+				newPubKeyring = new FileOutputStream(keyRingFilePath);
 				keyRingCollection.encode(newPubKeyring);
 			} catch (IOException e) {
 				throw new RuntimeException("Problem saving keyring file at: "

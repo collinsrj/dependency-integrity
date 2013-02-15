@@ -29,7 +29,7 @@ public class FileVerifier {
 	private static final String M2_REPOSITORY;
 	private static final Logger LOGGER = Logger.getLogger(FileVerifier.class
 			.getName());
-	private static final String NEW_PUBLIC_KEYRING_FILE = "/Users/rcollins/.gnupg/pubring_new.gpg";
+	private static final String NEW_PUBLIC_KEYRING_FILE;
 	private final ExecutorService exec = Executors.newFixedThreadPool(4);
 	private final ExecutorService webExec = Executors.newFixedThreadPool(8);
 	private HttpClient httpClient;
@@ -65,6 +65,7 @@ public class FileVerifier {
 		String userHome = System.getProperties().getProperty("user.home");
 		M2_REPOSITORY = m2HomeEnv != null && !m2HomeEnv.isEmpty() ? m2HomeEnv
 				: userHome + "/.m2/repository";
+		NEW_PUBLIC_KEYRING_FILE = userHome + "/.mvnrepoverifier/pubkeys.gpg";
 	}
 
 	public static void main(String[] args) {
@@ -83,6 +84,7 @@ public class FileVerifier {
 					M2_REPOSITORY, keyRing, dataStore));
 		}
 		shutdownExecutors();
+		keyRing.save();
 	}
 
 	private void shutdownExecutors() {
