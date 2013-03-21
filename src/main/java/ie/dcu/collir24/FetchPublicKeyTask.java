@@ -64,9 +64,9 @@ public class FetchPublicKeyTask implements Callable<PGPPublicKeyRing> {
 				}
 			}
 			default: {
-				LOGGER.warning("Unable to retrieve public key for fingerprint. HTTP status code was: "
-						+ response.getStatusLine().getStatusCode()
-						+ " URI requested was " + uri);
+//				LOGGER.warning("Unable to retrieve public key for fingerprint. HTTP status code was: "
+//						+ response.getStatusLine().getStatusCode()
+//						+ " URI requested was " + uri);
 			}
 			}
 			EntityUtils.consume(entity);
@@ -90,7 +90,7 @@ public class FetchPublicKeyTask implements Callable<PGPPublicKeyRing> {
 
 	private static URI buildURI(String fingerprint) {
 		URIBuilder builder = new URIBuilder();
-		builder.setScheme("http").setHost("pgpkeys.co.uk")
+		builder.setScheme("http").setHost("pgp.mit.edu").setPort(11371)
 				.setPath("/pks/lookup").setParameter("op", "get")
 				.setParameter("options", "mr")
 				.setParameter("search", fingerprint);
