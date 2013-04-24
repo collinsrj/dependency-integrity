@@ -19,10 +19,13 @@ import org.apache.http.client.HttpClient;
 import org.apache.http.impl.client.DefaultHttpClient;
 import org.apache.http.impl.conn.PoolingClientConnectionManager;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
+
 /**
- * Verifies the integrity of files in a local Maven repository. It does this by downloading the detached signature file from Maven Central.   
+ * Verifies the integrity of files in a local Maven repository. It does this by
+ * downloading the detached signature file from Maven Central.
+ * 
  * @author rcollins
- *
+ * 
  */
 public class FileVerifier {
 
@@ -70,18 +73,29 @@ public class FileVerifier {
 
 	public static void main(String[] args) {
 		FileVerifier verifier = new FileVerifier();
-		verifier.verifyFiles();
+		switch (args.length) {
+		case 0: {
+			verifier.verifyFiles(M2_REPOSITORY);
+			break;
+		}
+		case 1: {			
+			verifier.verifyFiles(args[0]);
+			break;
+		}
+		default:
+			throw new IllegalArgumentException("Usage: FileVerifier <dir_path>");
+		}
 	}
 
-	private void verifyFiles() {
-		File repoFile = new File(M2_REPOSITORY);
+	private void verifyFiles(final String directoryPath) {
+		File repoFile = new File(directoryPath);
 		Collection<File> files = FileUtils.listFiles(repoFile,
 				FileFilterUtils.asFileFilter(new SignedFilenameFilter()),
 				TrueFileFilter.INSTANCE);
 		VerificationDataStore dataStore = new ConsoleVerificationDataStore();
 		for (File f : files) {
 			exec.execute(new VerifyFileTask(f, webExec, httpClient,
-					M2_REPOSITORY, keyRing, dataStore));
+					directoryPath, keyRing, dataStore));
 		}
 		shutdownExecutors();
 		keyRing.save();

@@ -5,11 +5,14 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.PrintWriter;
+import java.io.Reader;
 import java.io.StringWriter;
 import java.security.Security;
 import java.security.SignatureException;
 import java.sql.Connection;
+import java.sql.Date;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -127,10 +130,17 @@ public class VerifySignatures {
 			try {
 				String sigPath = file.getAbsolutePath() + ".asc";
 				File sigFile = new File(sigPath);
-				long fileId = persistFile(sigFile);
+				long fileId = persistFile(file);
 				if (file.getName().endsWith(".pom")) {
 					MavenDetails mavenDetails = getMavenDetails(file);
 					persistPom(mavenDetails, fileId);
+				}
+
+				if (file.getName().endsWith(".jar")) {
+					// verify the signed jar file
+					JarVerificationDetails jarDetails = JarCerts
+							.verifyJar(file);
+					persistJar(jarDetails, fileId);
 				}
 
 				VerificationDetails verificationDetails = null;
@@ -164,21 +174,20 @@ public class VerifySignatures {
 		details.creationDate = sig.getCreationTime();
 		PGPPublicKey key = keyRing.getPublicKey(sig.getKeyID());
 		long keyId = sig.getKeyID();
-		if (key == null) {			
+		if (key == null) {
 			String keyAsHex = Long.toHexString(keyId).toUpperCase();
 			String fingerprint = "0x"
 					+ keyAsHex.substring(keyAsHex.length() - 8);
 			if (badKeys.contains(keyId)) {
-				throw new PGPException(
-						"Can't retrieve key with fingerprint: "
-								+ fingerprint);
+				throw new PGPException("Can't retrieve key with fingerprint: "
+						+ fingerprint);
 			}
 			try {
 				PGPPublicKeyRing newKey = exec.submit(
 						new FetchPublicKeyTask(fingerprint, httpClient)).get(
 						10, TimeUnit.SECONDS);
 				if (newKey == null) {
-					badKeys.add(keyId);					
+					badKeys.add(keyId);
 					throw new PGPException(
 							"Can't retrieve key with fingerprint: "
 									+ fingerprint);
@@ -244,14 +253,22 @@ public class VerifySignatures {
 
 	private static MavenDetails getMavenDetails(File file)
 			throws JDOMException, IOException {
-		Document doc = BUILDER.build(file);
-		Element project = doc.getRootElement();
-		Namespace ns = project.getNamespace();
-		Element modelVersion = project.getChild("modelVersion", ns);
-		if (modelVersion == null) {
-			return getMaven3Details(project, ns, file);
-		} else {
-			return getMaven4Details(project, ns);
+		Reader reader = null;
+		try {
+			Document doc = BUILDER.build(new InputStreamReader(new FileInputStream(
+					file), "UTF-8"));
+			Element project = doc.getRootElement();
+			Namespace ns = project.getNamespace();
+			Element modelVersion = project.getChild("modelVersion", ns);
+			if (modelVersion == null) {
+				return getMaven3Details(project, ns, file);
+			} else {
+				return getMaven4Details(project, ns);
+			}
+		} finally {
+			if (reader != null) {
+				reader.close();
+			}
 		}
 	}
 
@@ -265,8 +282,13 @@ public class VerifySignatures {
 
 	private static MavenDetails getMaven4Details(Element project, Namespace ns) {
 		String groupId = project.getChildTextTrim("groupId", ns);
+		if (groupId == null || groupId.isEmpty()) {
+			Element parent = project.getChild("parent", ns);
+			groupId = parent.getChildTextTrim("groupId", ns);
+		}
 		String artifactId = project.getChildTextTrim("artifactId", ns);
 		String version = project.getChildTextTrim("version", ns);
+		
 		MavenDetails details = new MavenDetails(4, groupId, artifactId, version);
 		setScm(project, ns, details);
 		setDevelopers(project, ns, details);
@@ -307,18 +329,23 @@ public class VerifySignatures {
 		try {
 			c = cp.getConnection();
 			create = c.createStatement();
-			create.addBatch("CREATE TABLE IF NOT EXISTS FILE(ID INT PRIMARY KEY AUTO_INCREMENT, FILE_PATH VARCHAR NOT NULL);");
+			create.addBatch("CREATE TABLE IF NOT EXISTS FILE(ID INT PRIMARY KEY AUTO_INCREMENT, FILE_PATH VARCHAR NOT NULL UNIQUE);");
 			create.addBatch("CREATE TABLE IF NOT EXISTS MAVEN_POM(ID INT PRIMARY KEY, GROUP_ID VARCHAR, ARTIFACT_ID VARCHAR, VERSION VARCHAR, POM_VERSION TINYINT);");
+			create.addBatch("CREATE TABLE IF NOT EXISTS JAR(ID INT PRIMARY KEY, SIGNED BOOLEAN NOT NULL, ALL_ENTRIES_SIGNED BOOLEAN, SEALED BOOLEAN NOT NULL);");
+			create.addBatch("CREATE TABLE IF NOT EXISTS JAR_SEALED_PACKAGES(ID INT PRIMARY KEY AUTO_INCREMENT, FILE_ID INT NOT NULL, PACKAGE VARCHAR);");
+			create.addBatch("CREATE TABLE IF NOT EXISTS JAR_CERT_PATHS(ID INT PRIMARY KEY AUTO_INCREMENT, FILE_ID INT NOT NULL, ALGORITHM VARCHAR, PRINCIPAL VARCHAR, FORMAT VARCHAR, NOT_BEFORE TIMESTAMP, NOT_AFTER TIMESTAMP, TRUSTED BOOLEAN NOT NULL);");
 			create.addBatch("CREATE TABLE IF NOT EXISTS DEVELOPERS(ID INT PRIMARY KEY AUTO_INCREMENT, MAVEN_POM_ID INT, EMAIL VARCHAR);");
-
-			create.addBatch("CREATE TABLE IF NOT EXISTS SIGNATURE(ID INT PRIMARY KEY AUTO_INCREMENT, FILE_ID INT NOT NULL, CREATE_TIME TIMESTAMP, VERIFIED BOOLEAN);");
-			create.addBatch("CREATE INDEX IF NOT EXISTS IDX_FILE_ID ON SIGNATURE(FILE_ID)");
-			create.addBatch("CREATE TABLE IF NOT EXISTS PUBLIC_KEY(ID INT PRIMARY KEY AUTO_INCREMENT, KEY_ID BIGINT, CREATE_TIME TIMESTAMP, EXPIRY_TIME TIMESTAMP, ALGORITHM CHAR(9), BIT_STRENGTH INT, REVOKED BOOLEAN);");
-			create.addBatch("CREATE INDEX IF NOT EXISTS IDX_KEY_ID ON PUBLIC_KEY(KEY_ID)");
+			create.addBatch("CREATE TABLE IF NOT EXISTS SIGNATURE(ID INT PRIMARY KEY AUTO_INCREMENT, FILE_ID INT NOT NULL, CREATE_TIME TIMESTAMP, VERIFIED BOOLEAN, KEY_ID BIGINT);");
+			create.addBatch("CREATE TABLE IF NOT EXISTS PUBLIC_KEY(ID INT PRIMARY KEY AUTO_INCREMENT, KEY_ID BIGINT UNIQUE, CREATE_TIME TIMESTAMP, EXPIRY_TIME TIMESTAMP, ALGORITHM CHAR(9), BIT_STRENGTH INT, REVOKED BOOLEAN);");
 			create.addBatch("CREATE TABLE IF NOT EXISTS PUBLIC_KEY_USER(ID INT PRIMARY KEY AUTO_INCREMENT, PUBLIC_KEY_ID INT, UID VARCHAR);");
-			create.addBatch("CREATE INDEX IF NOT EXISTS IDX_UID ON PUBLIC_KEY_USER(UID)");
+			create.addBatch("CREATE TABLE IF NOT EXISTS ERRORS(ID INT PRIMARY KEY AUTO_INCREMENT, FILE_PATH VARCHAR, MESSAGE VARCHAR, STACK_TRACE VARCHAR, NOTES VARCHAR);");
 
-			create.addBatch("CREATE TABLE IF NOT EXISTS ERRORS(ID INT PRIMARY KEY AUTO_INCREMENT, FILE_PATH VARCHAR, MESSAGE VARCHAR, STACK_TRACE VARCHAR);");
+			create.addBatch("CREATE INDEX IF NOT EXISTS IDX_JAR_ID ON JAR_SEALED_PACKAGES(FILE_ID);");
+			create.addBatch("CREATE INDEX IF NOT EXISTS IDX_FILE_ID ON SIGNATURE(FILE_ID);");
+			create.addBatch("CREATE INDEX IF NOT EXISTS IDX_KEY_ID ON PUBLIC_KEY(KEY_ID);");
+			create.addBatch("CREATE INDEX IF NOT EXISTS IDX_UID ON PUBLIC_KEY_USER(UID);");
+			create.addBatch("CREATE INDEX IF NOT EXISTS IDX_JAR_ID_CP ON JAR_CERT_PATHS(FILE_ID);");
+			create.addBatch("CREATE UNIQUE INDEX IF NOT EXISTS IDX_FILE_PATH ON FILE(FILE_PATH);");
 			int[] result = create.executeBatch();
 			for (int i = 0; i < result.length; i++) {
 				if (result[i] == Statement.EXECUTE_FAILED) {
@@ -388,6 +415,92 @@ public class VerifySignatures {
 		}
 	}
 
+	private void persistJar(JarVerificationDetails jarDetails, long fileId)
+			throws SQLException {
+		Connection c = null;
+		try {
+			c = cp.getConnection();
+			persistJar(fileId, jarDetails, c);
+			if (jarDetails.sealedPackages != null) {
+				persistSealedPackages(fileId, jarDetails, c);
+			}
+			persistCertPaths(fileId, jarDetails, c);
+		} finally {
+			if (c != null) {
+				c.close();
+			}
+		}
+	}
+
+	private static void persistJar(long fileId,
+			JarVerificationDetails jarDetails, Connection c)
+			throws SQLException {
+		PreparedStatement insertJar = null;
+		try {
+
+			insertJar = c
+					.prepareStatement("INSERT INTO JAR (ID, SIGNED, ALL_ENTRIES_SIGNED, SEALED) VALUES (?,?,?,?)");
+			insertJar.setLong(1, fileId);
+			insertJar.setBoolean(2, jarDetails.signed);
+			insertJar.setBoolean(3, jarDetails.allEntriesSigned);
+			insertJar.setBoolean(4, jarDetails.sealedPackages != null);
+			insertJar.execute();
+		} finally {
+			if (insertJar != null) {
+				insertJar.close();
+			}
+		}
+	}
+
+	private static void persistSealedPackages(long fileId,
+			JarVerificationDetails jarDetails, Connection c)
+			throws SQLException {
+		PreparedStatement insertSealedPackage = null;
+		try {
+			insertSealedPackage = c
+					.prepareStatement("INSERT INTO JAR_SEALED_PACKAGES (FILE_ID, PACKAGE) VALUES (?,?)");
+
+			for (String sealedPackage : jarDetails.sealedPackages) {
+				insertSealedPackage.setLong(1, fileId);
+				insertSealedPackage.setString(2, sealedPackage);
+				insertSealedPackage.addBatch();
+			}
+			insertSealedPackage.executeBatch();
+		} finally {
+			if (insertSealedPackage != null) {
+				insertSealedPackage.close();
+			}
+		}
+	}
+
+	private static void persistCertPaths(long fileId,
+			JarVerificationDetails jarDetails, Connection c)
+			throws SQLException {
+		PreparedStatement insertCertPaths = null;
+		try {
+			insertCertPaths = c
+					.prepareStatement("INSERT INTO JAR_CERT_PATHS(FILE_ID, ALGORITHM, PRINCIPAL, FORMAT, NOT_BEFORE, NOT_AFTER, TRUSTED) VALUES (?,?,?,?,?,?,?)");
+			for (CertificatePathDetails certDetails : jarDetails.certificateDetails) {
+				insertCertPaths.setLong(1, fileId);
+				insertCertPaths.setString(2, certDetails.algorithm);
+				insertCertPaths.setString(3, certDetails.principal);
+				insertCertPaths.setString(4, certDetails.format);
+				insertCertPaths.setDate(5,
+						new Date(certDetails.notBefore.getTime()));
+				insertCertPaths.setDate(6,
+						new Date(certDetails.notAfter.getTime()));
+				insertCertPaths.setBoolean(7, certDetails.trusted);
+				insertCertPaths.addBatch();
+			}
+
+			insertCertPaths.executeBatch();
+		} finally {
+			if (insertCertPaths != null) {
+				insertCertPaths.close();
+			}
+		}
+	}
+
 	private void persistDetails(VerificationDetails verificationDetails, long id)
 			throws SQLException {
 		Connection c = null;
@@ -400,7 +513,7 @@ public class VerifySignatures {
 			c = cp.getConnection();
 			c.setAutoCommit(false);
 
-			if (verificationDetails != null) {
+			if (verificationDetails.key.getSignatures() != null) {
 				insertSignature = persistSignature(verificationDetails, c, id);
 				// Check to see if the public key has already been inserted.
 				getPublicKey = c
@@ -448,11 +561,12 @@ public class VerifySignatures {
 			throws SQLException {
 		PreparedStatement insertSignature;
 		insertSignature = c
-				.prepareStatement("INSERT INTO SIGNATURE (FILE_ID, CREATE_TIME, VERIFIED) VALUES (?,?,?)");
+				.prepareStatement("INSERT INTO SIGNATURE (FILE_ID, CREATE_TIME, VERIFIED, KEY_ID) VALUES (?,?,?,?)");
 		insertSignature.setLong(1, id);
 		insertSignature.setDate(2, new java.sql.Date(
 				verificationDetails.creationDate.getTime()));
 		insertSignature.setBoolean(3, verificationDetails.verified);
+		insertSignature.setLong(4, verificationDetails.keyId);
 		insertSignature.execute();
 		return insertSignature;
 	}
@@ -549,14 +663,6 @@ public class VerifySignatures {
 		return insertPublicKeyUser;
 	}
 
-	// private void persistError(File file, Throwable e) {
-	// // StringWriter errorStringWriter = new StringWriter();
-	// // e.printStackTrace(new PrintWriter(errorStringWriter));
-	// System.out.println("e:" + file.getAbsolutePath() + "\t"
-	// + e.getMessage());
-	//
-	// }
-
 	private void persistError(File file, Throwable t) {
 		Connection c = null;
 		PreparedStatement insertFile = null;
@@ -593,5 +699,6 @@ public class VerifySignatures {
 		insertPom.execute();
 		return insertPom;
 	}
+
 	// http://jaredrobinson.com/blog/pitfalls-of-verifying-signed-jar-files/
 }

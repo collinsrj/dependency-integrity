@@ -90,7 +90,7 @@ public class FetchPublicKeyTask implements Callable<PGPPublicKeyRing> {
 
 	private static URI buildURI(String fingerprint) {
 		URIBuilder builder = new URIBuilder();
-		builder.setScheme("http").setHost("pgp.mit.edu").setPort(11371)
+		builder.setScheme("http").setHost("eu.pool.sks-keyservers.net").setPort(80)
 				.setPath("/pks/lookup").setParameter("op", "get")
 				.setParameter("options", "mr")
 				.setParameter("search", fingerprint);
