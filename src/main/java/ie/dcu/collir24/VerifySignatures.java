@@ -255,8 +255,8 @@ public class VerifySignatures {
 			throws JDOMException, IOException {
 		Reader reader = null;
 		try {
-			Document doc = BUILDER.build(new InputStreamReader(new FileInputStream(
-					file), "UTF-8"));
+			Document doc = BUILDER.build(new InputStreamReader(
+					new FileInputStream(file), "UTF-8"));
 			Element project = doc.getRootElement();
 			Namespace ns = project.getNamespace();
 			Element modelVersion = project.getChild("modelVersion", ns);
@@ -288,7 +288,7 @@ public class VerifySignatures {
 		}
 		String artifactId = project.getChildTextTrim("artifactId", ns);
 		String version = project.getChildTextTrim("version", ns);
-		
+
 		MavenDetails details = new MavenDetails(4, groupId, artifactId, version);
 		setScm(project, ns, details);
 		setDevelopers(project, ns, details);
@@ -345,7 +345,23 @@ public class VerifySignatures {
 			create.addBatch("CREATE INDEX IF NOT EXISTS IDX_KEY_ID ON PUBLIC_KEY(KEY_ID);");
 			create.addBatch("CREATE INDEX IF NOT EXISTS IDX_UID ON PUBLIC_KEY_USER(UID);");
 			create.addBatch("CREATE INDEX IF NOT EXISTS IDX_JAR_ID_CP ON JAR_CERT_PATHS(FILE_ID);");
+			create.addBatch("CREATE INDEX IF NOT EXISTS IDX_GROUP_ARTIFACT ON MAVEN_POM(GROUP_ID, ARTIFACT_ID);");
 			create.addBatch("CREATE UNIQUE INDEX IF NOT EXISTS IDX_FILE_PATH ON FILE(FILE_PATH);");
+
+			// The following foreign keys can also be added
+			// ALTER TABLE DEVELOPERS ADD FOREIGN KEY (MAVEN_POM_ID) REFERENCES
+			// MAVEN_POM(ID) on DELETE CASCADE;
+			// ALTER TABLE JAR ADD FOREIGN KEY (ID) REFERENCES FILE(ID) on
+			// DELETE CASCADE;
+			// ALTER TABLE JAR_CERT_PATHS ADD FOREIGN KEY (FILE_ID) REFERENCES
+			// FILE(ID) on DELETE CASCADE;
+			// ALTER TABLE JAR_SEALED_PACKAGES ADD FOREIGN KEY (FILE_ID)
+			// REFERENCES FILE(ID) on DELETE CASCADE;
+			// ALTER TABLE MAVEN_POM ADD FOREIGN KEY (ID) REFERENCES FILE(ID) on
+			// DELETE CASCADE;
+			// ALTER TABLE SIGNATURE ADD FOREIGN KEY (FILE_ID) REFERENCES
+			// FILE(ID) on DELETE CASCADE;
+
 			int[] result = create.executeBatch();
 			for (int i = 0; i < result.length; i++) {
 				if (result[i] == Statement.EXECUTE_FAILED) {
