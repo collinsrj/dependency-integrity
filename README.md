@@ -3,7 +3,7 @@ dependency-integrity
 ## Introduction
 This package allows for the generation of a database containing information on a [Maven](http://maven.apache.org/) source code repository. The goal of this is to allow the integrity of the artifacts to be determined by examining the artifacts themselves and their relationships to other entities. A copy of the schema can be seen below:
 
-[id]: https://github.com/collinsrj/dependency-integrity/blob/master/erd.png "DB Schema for Integrity Investigation"  
+![erd](https://raw.github.com/collinsrj/dependency-integrity/master/erd.png "DB Schema for Integrity Investigation")   
 
 The class `ie.dcu.collir24.VerifySignatures` can be executed with a path name specified as a command line argument. This will generate a [H2](http://www.h2database.com/) database. This can then be examined by any tool which supports the H2 JDBC driver. 
 Each file encountered will be:
